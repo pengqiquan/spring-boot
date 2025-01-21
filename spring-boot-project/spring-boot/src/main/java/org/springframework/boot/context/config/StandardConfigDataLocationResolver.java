@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2022 the original author or authors.
+ * Copyright 2012-2025 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,6 +45,7 @@ import org.springframework.core.io.support.SpringFactoriesLoader;
 import org.springframework.core.log.LogMessage;
 import org.springframework.util.Assert;
 import org.springframework.util.ObjectUtils;
+import org.springframework.util.ResourceUtils;
 import org.springframework.util.StringUtils;
 
 /**
@@ -53,6 +54,7 @@ import org.springframework.util.StringUtils;
  * @author Madhura Bhave
  * @author Phillip Webb
  * @author Scott Frederick
+ * @author Sijun Yang
  * @since 2.4.0
  */
 public class StandardConfigDataLocationResolver
@@ -62,11 +64,11 @@ public class StandardConfigDataLocationResolver
 
 	static final String CONFIG_NAME_PROPERTY = "spring.config.name";
 
-	private static final String[] DEFAULT_CONFIG_NAMES = { "application" };
+	static final String[] DEFAULT_CONFIG_NAMES = { "application" };
 
 	private static final Pattern URL_PREFIX = Pattern.compile("^([a-zA-Z][a-zA-Z0-9*]*?:)(.*$)");
 
-	private static final Pattern EXTENSION_HINT_PATTERN = Pattern.compile("^(.*)\\[(\\.\\w+)\\](?!\\[)$");
+	private static final Pattern EXTENSION_HINT_PATTERN = Pattern.compile("^(.*)\\[(\\.\\w+)](?!\\[)$");
 
 	private static final String NO_PROFILE = null;
 
@@ -147,6 +149,7 @@ public class StandardConfigDataLocationResolver
 	@Override
 	public List<StandardConfigDataResource> resolveProfileSpecific(ConfigDataLocationResolverContext context,
 			ConfigDataLocation location, Profiles profiles) {
+		validateProfiles(profiles);
 		return resolve(getProfileSpecificReferences(context, location.split(), profiles));
 	}
 
@@ -162,6 +165,27 @@ public class StandardConfigDataLocationResolver
 		return references;
 	}
 
+	private void validateProfiles(Profiles profiles) {
+		for (String profile : profiles) {
+			validateProfile(profile);
+		}
+	}
+
+	private void validateProfile(String profile) {
+		Assert.hasText(profile, "'profile' must contain text");
+		Assert.state(!profile.startsWith("-") && !profile.startsWith("_"),
+				() -> String.format("Invalid profile '%s': must not start with '-' or '_'", profile));
+		Assert.state(!profile.endsWith("-") && !profile.endsWith("_"),
+				() -> String.format("Invalid profile '%s': must not end with '-' or '_'", profile));
+		profile.codePoints().forEach((codePoint) -> {
+			if (codePoint == '-' || codePoint == '_' || Character.isLetterOrDigit(codePoint)) {
+				return;
+			}
+			throw new IllegalStateException(
+					String.format("Invalid profile '%s': must contain only letters or digits or '-' or '_'", profile));
+		});
+	}
+
 	private String getResourceLocation(ConfigDataLocationResolverContext context,
 			ConfigDataLocation configDataLocation) {
 		String resourceLocation = configDataLocation.getNonPrefixedValue(PREFIX);
@@ -170,8 +194,8 @@ public class StandardConfigDataLocationResolver
 			return resourceLocation;
 		}
 		ConfigDataResource parent = context.getParent();
-		if (parent instanceof StandardConfigDataResource) {
-			String parentResourceLocation = ((StandardConfigDataResource) parent).getReference().getResourceLocation();
+		if (parent instanceof StandardConfigDataResource resource) {
+			String parentResourceLocation = resource.getReference().getResourceLocation();
 			String parentDirectory = parentResourceLocation.substring(0, parentResourceLocation.lastIndexOf("/") + 1);
 			return parentDirectory + resourceLocation;
 		}
@@ -228,8 +252,20 @@ public class StandardConfigDataLocationResolver
 				return Collections.singleton(reference);
 			}
 		}
-		throw new IllegalStateException("File extension is not known to any PropertySourceLoader. "
-				+ "If the location is meant to reference a directory, it must end in '/' or File.separator");
+		if (configDataLocation.isOptional()) {
+			return Collections.emptySet();
+		}
+		if (configDataLocation.hasPrefix(PREFIX) || configDataLocation.hasPrefix(ResourceUtils.FILE_URL_PREFIX)
+				|| configDataLocation.hasPrefix(ResourceUtils.CLASSPATH_URL_PREFIX)
+				|| configDataLocation.toString().indexOf(':') == -1) {
+			throw new IllegalStateException("File extension is not known to any PropertySourceLoader. "
+					+ "If the location is meant to reference a directory, it must end in '/' or File.separator");
+		}
+		throw new IllegalStateException(
+				"Incorrect ConfigDataLocationResolver chosen or file extension is not known to any PropertySourceLoader. "
+						+ "If the location is meant to reference a directory, it must end in '/' or File.separator. "
+						+ "The location is being resolved using the StandardConfigDataLocationResolver, "
+						+ "check the location prefix if a different resolver is expected");
 	}
 
 	private String getLoadableFileExtension(PropertySourceLoader loader, String file) {
@@ -287,9 +323,10 @@ public class StandardConfigDataLocationResolver
 			String message = String.format("Config data location '%s' contains no subdirectories", location);
 			throw new ConfigDataLocationNotFoundException(location, message, null);
 		}
-		return Arrays.stream(subdirectories).filter(Resource::exists)
-				.map((resource) -> new StandardConfigDataResource(reference, resource, true))
-				.collect(Collectors.toCollection(LinkedHashSet::new));
+		return Arrays.stream(subdirectories)
+			.filter(Resource::exists)
+			.map((resource) -> new StandardConfigDataResource(reference, resource, true))
+			.collect(Collectors.toCollection(LinkedHashSet::new));
 	}
 
 	private List<StandardConfigDataResource> resolve(StandardConfigDataReference reference) {

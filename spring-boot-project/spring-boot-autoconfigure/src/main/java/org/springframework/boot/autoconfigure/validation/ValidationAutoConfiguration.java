@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2022 the original author or authors.
+ * Copyright 2012-2023 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,7 +33,6 @@ import org.springframework.boot.validation.beanvalidation.MethodValidationExclud
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.context.annotation.Role;
 import org.springframework.core.env.Environment;
 import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
@@ -60,7 +59,7 @@ public class ValidationAutoConfiguration {
 			ObjectProvider<ValidationConfigurationCustomizer> customizers) {
 		LocalValidatorFactoryBean factoryBean = new LocalValidatorFactoryBean();
 		factoryBean.setConfigurationInitializer((configuration) -> customizers.orderedStream()
-				.forEach((customizer) -> customizer.customize(configuration)));
+			.forEach((customizer) -> customizer.customize(configuration)));
 		MessageInterpolatorFactory interpolatorFactory = new MessageInterpolatorFactory(applicationContext);
 		factoryBean.setMessageInterpolator(interpolatorFactory.getObject());
 		return factoryBean;
@@ -69,12 +68,12 @@ public class ValidationAutoConfiguration {
 	@Bean
 	@ConditionalOnMissingBean(search = SearchStrategy.CURRENT)
 	public static MethodValidationPostProcessor methodValidationPostProcessor(Environment environment,
-			@Lazy Validator validator, ObjectProvider<MethodValidationExcludeFilter> excludeFilters) {
+			ObjectProvider<Validator> validator, ObjectProvider<MethodValidationExcludeFilter> excludeFilters) {
 		FilteredMethodValidationPostProcessor processor = new FilteredMethodValidationPostProcessor(
 				excludeFilters.orderedStream());
 		boolean proxyTargetClass = environment.getProperty("spring.aop.proxy-target-class", Boolean.class, true);
 		processor.setProxyTargetClass(proxyTargetClass);
-		processor.setValidator(validator);
+		processor.setValidatorProvider(validator);
 		return processor;
 	}
 
